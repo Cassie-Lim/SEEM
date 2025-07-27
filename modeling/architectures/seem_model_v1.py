@@ -730,6 +730,8 @@ class GeneralizedSEEM(nn.Module):
 
         # comment for multi object inference.
         mask_pred_results = []
+        mask_pred_confs = []
+        mask_feats = []
         for idx, batch_per_image in enumerate(batched_inputs):
             grd_texts = batch_per_image['groundings']['texts']
             grd_texts = [x[0] for x in grd_texts]
@@ -756,7 +758,10 @@ class GeneralizedSEEM(nn.Module):
             temperature = self.sem_seg_head.predictor.lang_encoder.logit_scale
             out_prob = vl_similarity(v_emb, t_emb, temperature=temperature)
             
-            matched_id = out_prob.max(0)[1]
+            matched_logits, matched_id = out_prob.max(0)
+            matched_confs = matched_logits.sigmoid()
+            mask_pred_confs += [matched_confs[:, None]]
+            mask_feats += [v_emb[matched_id]]
             mask_pred_results += [pred_gmasks[matched_id,:,:]]
 
         for i in range(len(mask_pred_results)):
@@ -769,8 +774,8 @@ class GeneralizedSEEM(nn.Module):
             )[0]
 
         processed_results = []
-        for mask_pred_result, input_per_image, image_size in zip(
-            mask_pred_results, batched_inputs, images.image_sizes
+        for mask_pred_result, mask_pred_conf, mask_feat, input_per_image, image_size in zip(
+            mask_pred_results, mask_pred_confs, mask_feats, batched_inputs, images.image_sizes
         ):
             height = input_per_image.get("height", image_size[0])
             width = input_per_image.get("width", image_size[1])
@@ -780,14 +785,26 @@ class GeneralizedSEEM(nn.Module):
                 mask_pred_result, image_size, height, width
             )
             processed_results[-1]['grounding_mask'] = mask_pred_result
-
+            processed_results[-1]['grounding_mask_conf'] = mask_pred_conf
+            processed_results[-1]['grounding_mask_feat'] = mask_feat
             # compute bbox
             # bbox = BitMasks(mask_pred_result > 0).get_bounding_boxes()
             # bbox = BoxMode.convert(bbox.tensor, BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
             # processed_results[-1]['grounding_box'] = bbox
 
         return processed_results
+    def query_cls_embed(self, texts, cls_embed):
+        '''
+        return scores, labels, logits
+        '''
+        gtext = self.sem_seg_head.predictor.lang_encoder.get_text_token_embeddings(texts, name='grounding', token=False, norm=False)
+        t_emb = gtext['class_emb']
+        t_emb = t_emb / (t_emb.norm(dim=-1, keepdim=True) + 1e-7)
+        v_emb = cls_embed
+        logits = vl_similarity(v_emb, t_emb, temperature=self.sem_seg_head.predictor.lang_encoder.logit_scale).sigmoid().transpose(1, 0)
+        scores, labels = logits.max(0)
 
+        return scores, labels, logits
     def evaluate_grounding_sptial(self, batched_inputs, mode):
         images = [x["image"].to(self.device) for x in batched_inputs]
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
