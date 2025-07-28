@@ -793,7 +793,7 @@ class GeneralizedSEEM(nn.Module):
             # processed_results[-1]['grounding_box'] = bbox
 
         return processed_results
-    def query_cls_embed(self, texts, cls_embed):
+    def query_cls_embed(self, texts, cls_embed, scale_logits=None):
         '''
         return scores, labels, logits
         '''
@@ -802,6 +802,8 @@ class GeneralizedSEEM(nn.Module):
         t_emb = t_emb / (t_emb.norm(dim=-1, keepdim=True) + 1e-7)
         v_emb = cls_embed
         logits = vl_similarity(v_emb, t_emb, temperature=self.sem_seg_head.predictor.lang_encoder.logit_scale).sigmoid().transpose(1, 0)
+        if scale_logits is not None:
+            logits = logits * scale_logits.transpose(1, 0)[0]
         scores, labels = logits.max(0)
 
         return scores, labels, logits
