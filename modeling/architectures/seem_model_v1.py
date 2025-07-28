@@ -800,7 +800,8 @@ class GeneralizedSEEM(nn.Module):
         gtext = self.sem_seg_head.predictor.lang_encoder.get_text_token_embeddings(texts, name='grounding', token=False, norm=False)
         t_emb = gtext['class_emb']
         t_emb = t_emb / (t_emb.norm(dim=-1, keepdim=True) + 1e-7)
-        v_emb = cls_embed
+        v_emb = cls_embed / (cls_embed.norm(dim=-1, keepdim=True) + 1e-7)
+        # logits = torch.matmul(v_emb, t_emb.t()).transpose(1, 0)  # [num_queries, num_classes]
         logits = vl_similarity(v_emb, t_emb, temperature=self.sem_seg_head.predictor.lang_encoder.logit_scale).sigmoid().transpose(1, 0)
         if scale_logits is not None:
             logits = logits * scale_logits.transpose(1, 0)[0]
