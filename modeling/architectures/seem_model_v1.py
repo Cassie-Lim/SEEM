@@ -758,8 +758,11 @@ class GeneralizedSEEM(nn.Module):
             temperature = self.sem_seg_head.predictor.lang_encoder.logit_scale
             out_prob = vl_similarity(v_emb, t_emb, temperature=temperature)
             
-            matched_logits, matched_id = out_prob.max(0)
-            matched_confs = matched_logits.sigmoid()
+            # matched_logits, matched_id = out_prob.max(0)
+            # matched_confs = matched_logits.sigmoid()
+            out_prob = F.softmax(out_prob, dim=-1)
+            matched_confs, matched_id = out_prob.max(0)
+
             mask_pred_confs += [matched_confs[:, None]]
             mask_feats += [v_emb[matched_id]]
             mask_pred_results += [pred_gmasks[matched_id,:,:]]
